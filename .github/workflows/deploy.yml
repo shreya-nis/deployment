@@ -105,13 +105,12 @@ jobs:
           EC2_IP: ${{ steps.get-ip.outputs.EC2_IP }}
           MONGO_URI: ${{ secrets.MONGO_URI }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          GH_TOKEN: ${{ secrets.GH_PAT }}
         with:
           host: ${{ steps.get-ip.outputs.EC2_IP }}
           username: ubuntu
           key_path: /tmp/server-key.pem
           script_stop: true
-          envs: EC2_IP,MONGO_URI,JWT_SECRET,GH_TOKEN
+          envs: EC2_IP,MONGO_URI,JWT_SECRET
           script: |
             echo ">>> [1/6] Waiting for cloud-init instance bootstrap..."
             sudo cloud-init status --wait || true
@@ -120,11 +119,11 @@ jobs:
             if [ ! -d "/var/www/app/.git" ]; then
               echo "Cloning repository..."
               rm -rf /var/www/app
-              git clone https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git /var/www/app
+              git clone https://github.com/${{ github.repository }}.git /var/www/app
               chown -R ubuntu:ubuntu /var/www/app
             else
               cd /var/www/app
-              git fetch https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git main
+              git fetch origin main
               git reset --hard FETCH_HEAD
             fi
 

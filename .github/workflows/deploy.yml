@@ -103,14 +103,14 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           EC2_IP: ${{ steps.get-ip.outputs.EC2_IP }}
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
         with:
           host: ${{ steps.get-ip.outputs.EC2_IP }}
           username: ubuntu
           key_path: /tmp/server-key.pem
           script_stop: true
-          envs: EC2_IP,MONGODB_URI,JWT_SECRET
+          envs: EC2_IP,MONGO_URI,JWT_SECRET
           script: |
             echo ">>> [1/6] Waiting for cloud-init instance bootstrap..."
             sudo cloud-init status --wait || true
@@ -134,8 +134,8 @@ jobs:
               "PORT=5000" \
               "NODE_ENV=production" \
               "CLIENT_URL=http://$EC2_IP" \
-              "MONGO_URI=$MONGODB_URI" \
-              "MONGODB_URI=$MONGODB_URI" \
+              "MONGO_URI=$MONGO_URI" \
+              "MONGODB_URI=$MONGO_URI" \
               "JWT_SECRET=$JWT_SECRET" \
               "JWT_EXPIRES_IN=1d" \
               > /var/www/app/backend/.env

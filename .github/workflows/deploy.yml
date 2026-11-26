@@ -119,7 +119,9 @@ jobs:
             echo ">>> [2/6] Syncing latest code..."
             if [ ! -d "/var/www/app/.git" ]; then
               echo "Cloning repository..."
+              rm -rf /var/www/app
               git clone https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git /var/www/app
+              chown -R ubuntu:ubuntu /var/www/app
             else
               cd /var/www/app
               git fetch https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git main

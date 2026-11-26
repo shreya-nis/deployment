@@ -112,19 +112,32 @@ jobs:
           script_stop: true
           envs: EC2_IP,MONGO_URI,JWT_SECRET
           script: |
-            echo ">>> [1/6] Waiting for cloud-init instance bootstrap..."
+            echo ">>> [1/6] Waiting for cloud-init instance bootstrap & configuring swap..."
             sudo cloud-init status --wait || true
+            if [ ! -f /swapfile ]; then
+              sudo fallocate -l 1G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile || true
+            fi
 
             echo ">>> [2/6] Syncing latest code..."
+            sudo mkdir -p /var/www/app
+            sudo chown -R ubuntu:ubuntu /var/www/app
+            git config --global --add safe.directory /var/www/app
             if [ ! -d "/var/www/app/.git" ]; then
               echo "Cloning repository..."
-              rm -rf /var/www/app
-              git clone https://github.com/${{ github.repository }}.git /var/www/app
-              chown -R ubuntu:ubuntu /var/www/app
-            else
+              rm -rf /var/www/app/* /var/www/app/.[!.]* 2>/dev/null || true
+              git clone "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" /var/www/app
               cd /var/www/app
+              git remote set-url origin "https://github.com/${{ github.repository }}.git"
+            else
+              echo "Pulling latest changes..."
+              cd /var/www/app
+              git remote set-url origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
               git fetch origin main
-              git reset --hard FETCH_HEAD
+              git reset --hard origin/main
+              git remote set-url origin "https://github.com/${{ github.repository }}.git"
             fi
 
             echo ">>> [3/6] Installing backend dependencies..."

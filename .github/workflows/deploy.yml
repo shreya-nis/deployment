@@ -112,7 +112,8 @@ jobs:
           script_stop: true
           envs: EC2_IP,MONGO_URI,JWT_SECRET
           script: |
-            echo ">>> [1/6] Waiting for cloud-init instance bootstrap & configuring swap..."
+            set -ex
+            echo ">>> [1/6] Bootstrap and prerequisites..."
             sudo cloud-init status --wait || true
             if [ ! -f /swapfile ]; then
               sudo fallocate -l 1G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
@@ -121,22 +122,28 @@ jobs:
               sudo swapon /swapfile || true
             fi
 
+            which git >/dev/null || (sudo apt-get update -y && sudo apt-get install -y git)
+            which node >/dev/null || (curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash - && sudo apt-get install -y nodejs)
+            which nginx >/dev/null || sudo apt-get install -y nginx
+            which pm2 >/dev/null || sudo npm install -g pm2
+
             echo ">>> [2/6] Syncing latest code..."
-            sudo mkdir -p /var/www/app
-            sudo chown -R ubuntu:ubuntu /var/www/app
-            git config --global --add safe.directory /var/www/app
-            if [ ! -d "/var/www/app/.git" ]; then
-              echo "Cloning repository..."
-              rm -rf /var/www/app/* /var/www/app/.[!.]* 2>/dev/null || true
-              git clone "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" /var/www/app
-              cd /var/www/app
-              git remote set-url origin "https://github.com/${{ github.repository }}.git"
-            else
+            git config --global --add safe.directory /var/www/app || true
+
+            if [ -d "/var/www/app/.git" ]; then
               echo "Pulling latest changes..."
               cd /var/www/app
-              git remote set-url origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+              git remote set-url origin "https://oauth2:${{ github.token }}@github.com/${{ github.repository }}.git"
               git fetch origin main
               git reset --hard origin/main
+              git remote set-url origin "https://github.com/${{ github.repository }}.git"
+            else
+              echo "Cloning repository..."
+              sudo rm -rf /var/www/app
+              sudo mkdir -p /var/www/app
+              sudo chown -R ubuntu:ubuntu /var/www/app
+              git clone "https://oauth2:${{ github.token }}@github.com/${{ github.repository }}.git" /var/www/app
+              cd /var/www/app
               git remote set-url origin "https://github.com/${{ github.repository }}.git"
             fi
 

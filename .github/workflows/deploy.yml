@@ -114,69 +114,20 @@ jobs:
           script_stop: true
           envs: EC2_IP,MONGO_URI,JWT_SECRET,GITHUB_TOKEN,GITHUB_REPO
           script: |
-            cat << 'DEPLOY_SCRIPT' > /tmp/deploy.sh
-            #!/bin/bash
-            set -ex
-
-            # Ensure swap on t2.micro to avoid memory exhaustion during build
-            if [ ! -f /swapfile ]; then
-              sudo fallocate -l 1G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
-              sudo chmod 600 /swapfile
-              sudo mkswap /swapfile
-              sudo swapon /swapfile || true
-            fi
-
-            git config --global --add safe.directory /var/www/app || true
-
-            if [ -d "/var/www/app/.git" ]; then
-              echo ">>> Pulling latest changes..."
-              cd /var/www/app
-              git remote set-url origin "https://oauth2:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
-              git fetch origin main
-              git reset --hard origin/main
-            else
-              echo ">>> Cloning repository fresh..."
-              sudo rm -rf /var/www/app
-              sudo mkdir -p /var/www/app
-              sudo chown -R ubuntu:ubuntu /var/www/app
-              git clone "https://oauth2:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" /var/www/app
-              cd /var/www/app
-            fi
-
-            echo ">>> Installing dependencies..."
-            cd /var/www/app/backend
-            npm ci --omit=dev
-
-            echo ">>> Generating production .env..."
-            printf "%s\n" \
-              "PORT=5000" \
-              "NODE_ENV=production" \
-              "CLIENT_URL=http://${EC2_IP}" \
-              "MONGO_URI=${MONGO_URI}" \
-              "MONGODB_URI=${MONGO_URI}" \
-              "JWT_SECRET=${JWT_SECRET}" \
-              "JWT_EXPIRES_IN=1d" \
-              > /var/www/app/backend/.env
-
-            echo ">>> Building frontend..."
-            cd /var/www/app/frontend
-            npm ci
-            npm run build
-
-            echo ">>> Reloading PM2 and Nginx..."
-            cd /var/www/app/backend
+            test -f /swapfile || (sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile || true)
+            sudo mkdir -p /var/www/app
+            sudo chown -R ubuntu:ubuntu /var/www/app
+            git config --global --add safe.directory /var/www/app
+            test -d /var/www/app/.git && (cd /var/www/app && git remote set-url origin https://oauth2:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git && git fetch origin main && git reset --hard origin/main) || git clone https://oauth2:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git /var/www/app
+            cd /var/www/app/backend && npm ci --omit=dev
+            printf "PORT=5000\nNODE_ENV=production\nCLIENT_URL=http://${EC2_IP}\nMONGO_URI=${MONGO_URI}\nMONGODB_URI=${MONGO_URI}\nJWT_SECRET=${JWT_SECRET}\nJWT_EXPIRES_IN=1d\n" > /var/www/app/backend/.env
+            cd /var/www/app/frontend && npm ci && npm run build
             pm2 delete all 2>/dev/null || true
-            pm2 start ecosystem.config.cjs --update-env
-            pm2 save
+            cd /var/www/app/backend && pm2 start ecosystem.config.cjs --update-env && pm2 save
             sudo cp /var/www/app/infra/nginx.conf /etc/nginx/sites-available/app
             sudo ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled/app
             sudo rm -f /etc/nginx/sites-enabled/default
             sudo nginx -t && sudo systemctl reload nginx
-            DEPLOY_SCRIPT
-
-            chmod +x /tmp/deploy.sh
-            bash /tmp/deploy.sh
-            rm -f /tmp/deploy.sh
 
       - name: Print Live Web Application URL
         run: echo "🎉 Website is live at http://${{ steps.get-ip.outputs.EC2_IP }}"

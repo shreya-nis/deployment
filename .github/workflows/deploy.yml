@@ -105,15 +105,20 @@ jobs:
           EC2_IP: ${{ steps.get-ip.outputs.EC2_IP }}
           MONGO_URI: ${{ secrets.MONGO_URI }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
         with:
           host: ${{ steps.get-ip.outputs.EC2_IP }}
           username: ubuntu
           key_path: /tmp/server-key.pem
           script_stop: true
-          envs: EC2_IP,MONGO_URI,JWT_SECRET
+          envs: EC2_IP,MONGO_URI,JWT_SECRET,GITHUB_TOKEN,GITHUB_REPO
           script: |
+            cat << 'DEPLOY_SCRIPT' > /tmp/deploy.sh
+            #!/bin/bash
             set -ex
-            echo ">>> [1/6] Bootstrap and prerequisites..."
+
+            echo ">>> [1/6] Bootstrap and swap..."
             sudo cloud-init status --wait || true
             if [ ! -f /swapfile ]; then
               sudo fallocate -l 1G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
@@ -133,18 +138,18 @@ jobs:
             if [ -d "/var/www/app/.git" ]; then
               echo "Pulling latest changes..."
               cd /var/www/app
-              git remote set-url origin "https://oauth2:${{ github.token }}@github.com/${{ github.repository }}.git"
+              git remote set-url origin "https://oauth2:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
               git fetch origin main
               git reset --hard origin/main
-              git remote set-url origin "https://github.com/${{ github.repository }}.git"
+              git remote set-url origin "https://github.com/${GITHUB_REPO}.git"
             else
               echo "Cloning repository..."
               sudo rm -rf /var/www/app
               sudo mkdir -p /var/www/app
               sudo chown -R ubuntu:ubuntu /var/www/app
-              git clone "https://oauth2:${{ github.token }}@github.com/${{ github.repository }}.git" /var/www/app
+              git clone "https://oauth2:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" /var/www/app
               cd /var/www/app
-              git remote set-url origin "https://github.com/${{ github.repository }}.git"
+              git remote set-url origin "https://github.com/${GITHUB_REPO}.git"
             fi
 
             echo ">>> [3/6] Installing backend dependencies..."
@@ -155,10 +160,10 @@ jobs:
             printf "%s\n" \
               "PORT=5000" \
               "NODE_ENV=production" \
-              "CLIENT_URL=http://$EC2_IP" \
-              "MONGO_URI=$MONGO_URI" \
-              "MONGODB_URI=$MONGO_URI" \
-              "JWT_SECRET=$JWT_SECRET" \
+              "CLIENT_URL=http://${EC2_IP}" \
+              "MONGO_URI=${MONGO_URI}" \
+              "MONGODB_URI=${MONGO_URI}" \
+              "JWT_SECRET=${JWT_SECRET}" \
               "JWT_EXPIRES_IN=1d" \
               > /var/www/app/backend/.env
 
@@ -176,6 +181,12 @@ jobs:
             sudo ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled/app
             sudo rm -f /etc/nginx/sites-enabled/default
             sudo nginx -t && sudo systemctl reload nginx
+
+            echo ">>> [Done] Application successfully deployed!"
+            DEPLOY_SCRIPT
+            chmod +x /tmp/deploy.sh
+            bash /tmp/deploy.sh
+            rm -f /tmp/deploy.sh
 
       - name: Print Live Web Application URL
         run: echo "🎉 Website is live at http://${{ steps.get-ip.outputs.EC2_IP }}"

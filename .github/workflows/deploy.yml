@@ -118,8 +118,7 @@ jobs:
             #!/bin/bash
             set -ex
 
-            echo ">>> [1/6] Bootstrap and swap..."
-            sudo cloud-init status --wait || true
+            # Ensure swap on t2.micro to avoid memory exhaustion during build
             if [ ! -f /swapfile ]; then
               sudo fallocate -l 1G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
               sudo chmod 600 /swapfile
@@ -127,36 +126,28 @@ jobs:
               sudo swapon /swapfile || true
             fi
 
-            which git >/dev/null || (sudo apt-get update -y && sudo apt-get install -y git)
-            which node >/dev/null || (curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash - && sudo apt-get install -y nodejs)
-            which nginx >/dev/null || sudo apt-get install -y nginx
-            which pm2 >/dev/null || sudo npm install -g pm2
-
-            echo ">>> [2/6] Syncing latest code..."
             git config --global --add safe.directory /var/www/app || true
 
             if [ -d "/var/www/app/.git" ]; then
-              echo "Pulling latest changes..."
+              echo ">>> Pulling latest changes..."
               cd /var/www/app
               git remote set-url origin "https://oauth2:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
               git fetch origin main
               git reset --hard origin/main
-              git remote set-url origin "https://github.com/${GITHUB_REPO}.git"
             else
-              echo "Cloning repository..."
+              echo ">>> Cloning repository fresh..."
               sudo rm -rf /var/www/app
               sudo mkdir -p /var/www/app
               sudo chown -R ubuntu:ubuntu /var/www/app
               git clone "https://oauth2:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" /var/www/app
               cd /var/www/app
-              git remote set-url origin "https://github.com/${GITHUB_REPO}.git"
             fi
 
-            echo ">>> [3/6] Installing backend dependencies..."
+            echo ">>> Installing dependencies..."
             cd /var/www/app/backend
             npm ci --omit=dev
 
-            echo ">>> [4/6] Generating server .env file..."
+            echo ">>> Generating production .env..."
             printf "%s\n" \
               "PORT=5000" \
               "NODE_ENV=production" \
@@ -167,12 +158,12 @@ jobs:
               "JWT_EXPIRES_IN=1d" \
               > /var/www/app/backend/.env
 
-            echo ">>> [5/6] Building React frontend..."
+            echo ">>> Building frontend..."
             cd /var/www/app/frontend
             npm ci
             npm run build
 
-            echo ">>> [6/6] Reloading PM2 and Nginx..."
+            echo ">>> Reloading PM2 and Nginx..."
             cd /var/www/app/backend
             pm2 delete all 2>/dev/null || true
             pm2 start ecosystem.config.cjs --update-env
@@ -181,9 +172,8 @@ jobs:
             sudo ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled/app
             sudo rm -f /etc/nginx/sites-enabled/default
             sudo nginx -t && sudo systemctl reload nginx
-
-            echo ">>> [Done] Application successfully deployed!"
             DEPLOY_SCRIPT
+
             chmod +x /tmp/deploy.sh
             bash /tmp/deploy.sh
             rm -f /tmp/deploy.sh
